@@ -1,14 +1,50 @@
+import { getExecutionList } from "@/lib/bybit/execution/get-execution-list";
+
 type ActivitiesItem = {
   key: string;
   text: string;
 };
 
-type ActivitiesSectionProps = {
-  items: ActivitiesItem[];
-  nextPageCursor?: string;
-};
+function parseTimeValue(value?: string): number {
+  if (!value) return 0;
 
-export function ActivitiesSection({ items, nextPageCursor }: ActivitiesSectionProps) {
+  const numeric = Number(value);
+  if (!Number.isNaN(numeric) && numeric > 0) {
+    return numeric;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function toTimelineLabel(timeMs: number): string {
+  if (!timeMs) return "Unknown time";
+
+  return new Date(timeMs).toLocaleString();
+}
+
+export async function ActivitiesSection() {
+  const executionCategories = ["linear", "inverse", "option", "spot"] as const;
+  const executionResults = await Promise.allSettled(
+    executionCategories.map((category) => getExecutionList({ category, limit: 50 }))
+  );
+
+  const items: ActivitiesItem[] = executionResults
+    .flatMap((result, index) => {
+      if (result.status !== "fulfilled") {
+        return [];
+      }
+
+      const category = result.value.category ?? executionCategories[index];
+      return result.value.items.map((execution, itemIndex) => ({
+        key: `${category}-${execution.execId}-${itemIndex}`,
+        timeMs: parseTimeValue(execution.execTime),
+        text: `${category.toUpperCase()} | ${execution.symbol} | ${execution.side} ${execution.execQty} @ ${execution.execPrice} | fee: ${execution.execFee} ${execution.feeCurrency} | ${toTimelineLabel(parseTimeValue(execution.execTime))}`,
+      }));
+    })
+    .sort((a, b) => b.timeMs - a.timeMs)
+    .map((item) => ({ key: item.key, text: item.text }));
+
   return (
     <section style={{ marginTop: 24 }}>
       <h2>Activities</h2>
@@ -29,10 +65,6 @@ export function ActivitiesSection({ items, nextPageCursor }: ActivitiesSectionPr
             items.map((item) => <li key={item.key}>{item.text}</li>)
           )}
         </ul>
-
-        {nextPageCursor ? (
-          <p style={{ marginTop: 12, marginBottom: 0 }}>Next cursor: {nextPageCursor}</p>
-        ) : null}
       </div>
     </section>
   );

@@ -1,13 +1,28 @@
+import { getOpenOrders } from "@/lib/bybit/trade/get-open-orders";
+
 type OpenOrderListItem = {
   key: string;
   text: string;
 };
 
-type OpenOrdersSectionProps = {
-  items: OpenOrderListItem[];
-};
+export async function OpenOrdersSection() {
+  const orderCategories = ["linear", "inverse", "option", "spot"] as const;
+  const openOrderResults = await Promise.allSettled(
+    orderCategories.map((category) => getOpenOrders({ category }))
+  );
 
-export function OpenOrdersSection({ items }: OpenOrdersSectionProps) {
+  const items: OpenOrderListItem[] = openOrderResults.flatMap((result, index) => {
+    if (result.status !== "fulfilled") {
+      return [];
+    }
+
+    const category = result.value.category ?? orderCategories[index];
+    return result.value.items.map((order, itemIndex) => ({
+      key: `${category}-${order.orderId}-${itemIndex}`,
+      text: `${category.toUpperCase()} | ${order.symbol} | ${order.side} | ${order.orderType} | qty: ${order.qty} | price: ${order.price} | status: ${order.orderStatus}`,
+    }));
+  });
+
   return (
     <section style={{ marginTop: 24 }}>
       <h2>Open Orders</h2>

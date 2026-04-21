@@ -1,13 +1,28 @@
+import { getPositionInfo } from "@/lib/bybit/position/get-position-info";
+
 type PositionItem = {
   key: string;
   text: string;
 };
 
-type PositionsSectionProps = {
-  items: PositionItem[];
-};
+export async function PositionsSection() {
+  const positionCategories = ["linear", "inverse", "option"] as const;
+  const positionResults = await Promise.allSettled(
+    positionCategories.map((category) => getPositionInfo({ category }))
+  );
 
-export function PositionsSection({ items }: PositionsSectionProps) {
+  const items: PositionItem[] = positionResults.flatMap((result, index) => {
+    if (result.status !== "fulfilled") {
+      return [];
+    }
+
+    const category = result.value.category ?? positionCategories[index];
+    return result.value.items.map((position, itemIndex) => ({
+      key: `${category}-${position.symbol}-${position.side}-${position.positionIdx}-${itemIndex}`,
+      text: `${category.toUpperCase()} | ${position.symbol} | ${position.side} | size: ${position.size} | avg: ${position.avgPrice} | mark: ${position.markPrice} | uPnL: ${position.unrealisedPnl}`,
+    }));
+  });
+
   return (
     <section style={{ marginTop: 24 }}>
       <h2>Positions</h2>

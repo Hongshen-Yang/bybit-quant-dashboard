@@ -72,7 +72,7 @@ export async function getAllCoinsBalance(params?: {
       return [];
     }
 
-    console.log(`getAllCoinsBalance succeeded for ${accountType}: ${result.value.balances.length} coins`);
+    // console.log(`getAllCoinsBalance succeeded for ${accountType}: ${result.value.balances.length} coins`);
     return [result.value];
   });
   const totalRows = rows.reduce((sum, item) => sum + item.balances.length, 0);
