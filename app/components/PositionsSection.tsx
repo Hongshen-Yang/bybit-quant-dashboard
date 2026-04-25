@@ -38,14 +38,6 @@ export async function PositionsSection() {
 
     const query = queries[index];
     const category = result.value.category ?? query.category;
-    const itemsCount = result.value.items.length;
-    
-    if (itemsCount > 0) {
-      console.log(
-        `✓ Found ${itemsCount} positions for ${query.category} (settleCoin: ${query.settleCoin}):`,
-        result.value
-      );
-    }
 
     return result.value.items.map((position, itemIndex) => ({
       key: `${category}-${position.symbol}-${position.side}-${position.positionIdx}-${itemIndex}`,

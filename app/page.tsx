@@ -6,13 +6,11 @@ import { PositionsSection } from "./components/PositionsSection";
 import { OpenOrdersSection } from "./components/OpenOrdersSection";
 
 export default async function Home() {
-  const utcNow = new Date().toUTCString();
-
   return (
     <main style={{ padding: "24px" }}>
       <h1>Bybit Quant Dashboard</h1>
-      <p style={{ marginTop: 4, marginBottom: 0 }}>UTC: {utcNow}</p>
-      <DashboardHeader utcNow={utcNow} />
+      <p style={{ marginTop: 4, marginBottom: 0 }}>UTC: {new Date().toUTCString()}</p>
+      <DashboardHeader />
       <PortfolioSection />
       <PositionsSection />
       <OpenOrdersSection />

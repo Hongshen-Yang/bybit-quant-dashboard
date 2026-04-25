@@ -1,11 +1,7 @@
 import { getFeeRate } from "@/lib/bybit/account/get-fee-rate";
 import { getSystemStatus } from "@/lib/bybit/system/get-system-status";
 
-type DashboardHeaderProps = {
-  utcNow: string;
-};
-
-export async function DashboardHeader({ utcNow }: DashboardHeaderProps) {
+export async function DashboardHeader() {
   const feeRateCategories = ["linear", "inverse", "option", "spot"] as const;
   const [feeRateResults, systemStatusResult] = await Promise.all([
     Promise.allSettled(feeRateCategories.map((category) => getFeeRate({ category }))),

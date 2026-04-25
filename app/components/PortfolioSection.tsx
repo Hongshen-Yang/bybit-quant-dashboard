@@ -8,6 +8,15 @@ type PortfolioItem = {
   text: string;
 };
 
+type PortfolioCoinView = {
+  coin: string;
+  walletBalance: string;
+  equity: string;
+  availableToWithdraw: string;
+  unrealisedPnl: string;
+  usdValue: number;
+};
+
 function formatAccountType(accountType: BybitAccountType): string {
   switch (accountType) {
     case "UNIFIED":
@@ -32,6 +41,28 @@ function toFixedValue(value: number, digits: number): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
+}
+
+function toNumber(value: string | number): number {
+  return Number(value);
+}
+
+function hasVisibleBalance(coin: PortfolioCoinView): boolean {
+  return toNumber(coin.walletBalance) !== 0 || toNumber(coin.equity) !== 0;
+}
+
+function toWalletBalanceText(coin: {
+  coin: string;
+  walletBalance: string;
+  equity: string;
+  availableToWithdraw: string;
+  unrealisedPnl: string;
+}): string {
+  return `${coin.coin} - wallet: ${coin.walletBalance} - equity: ${coin.equity} - available: ${coin.availableToWithdraw} - pnl: ${coin.unrealisedPnl}`;
+}
+
+function toFundingBalanceText(balance: { coin: string; walletBalance: string; transferBalance: string; bonus?: string }): string {
+  return `${balance.coin} - wallet: ${balance.walletBalance} - transfer: ${balance.transferBalance} - bonus: ${balance.bonus || "0"}`;
 }
 
 function buildUsdtRateMap(tickerItems: Array<{ symbol: string; lastPrice: string }>) {
@@ -64,17 +95,7 @@ export async function PortfolioSection() {
     getSpotTickers(),
   ]);
 
-  const allCoins: Record<
-    string,
-    {
-      coin: string;
-      walletBalance: string;
-      equity: string;
-      availableToWithdraw: string;
-      unrealisedPnl: string;
-      usdValue: number;
-    }
-  > = {};
+  const allCoins: Record<string, PortfolioCoinView> = {};
 
   unifiedResult.rows.forEach((row) => {
     row.coins.forEach((coin) => {
@@ -126,6 +147,7 @@ export async function PortfolioSection() {
   });
 
   const items: PortfolioItem[] = Object.values(allCoins)
+    .filter(hasVisibleBalance)
     .sort((a, b) => a.coin.localeCompare(b.coin))
     .map((coin) => ({
       key: coin.coin,
@@ -201,17 +223,31 @@ export async function PortfolioSection() {
   const totalBtcValue = btcUsdtRate > 0 ? totalUsdtValue / btcUsdtRate : 0;
 
   const accountSections = [
-    ...unifiedResult.sections,
-    ...allCoinsResult.sections,
-  ]
-    .filter((section) => section.items.length > 0)
-    .map((section) => ({
-      accountType: section.accountType,
-      title: formatAccountType(section.accountType),
-      count: section.count,
-      items: section.items,
-      value: accountValues.get(section.accountType) ?? { usdt: 0, btc: 0 },
-    }));
+    ...unifiedResult.rows.map((row) => ({
+      accountType: row.accountType,
+      title: formatAccountType(row.accountType),
+      count: row.coins.filter((coin) => Number(coin.walletBalance) !== 0).length,
+      items: row.coins
+        .filter((coin) => Number(coin.walletBalance) !== 0)
+        .map((coin) => ({
+          key: `${row.accountType}-${coin.coin}`,
+          text: toWalletBalanceText(coin),
+        })),
+      value: accountValues.get(row.accountType) ?? { usdt: 0, btc: 0 },
+    })),
+    ...allCoinsResult.rows.map((row) => ({
+      accountType: row.accountType,
+      title: formatAccountType(row.accountType),
+      count: row.balances.filter((balance) => Number(balance.walletBalance) !== 0).length,
+      items: row.balances
+        .filter((balance) => Number(balance.walletBalance) !== 0)
+        .map((balance) => ({
+          key: `${row.accountType}-${balance.coin}`,
+          text: toFundingBalanceText(balance),
+        })),
+      value: accountValues.get(row.accountType) ?? { usdt: 0, btc: 0 },
+    })),
+  ].filter((section) => section.items.length > 0);
 
   return (
     <section style={{ marginTop: 24 }}>
