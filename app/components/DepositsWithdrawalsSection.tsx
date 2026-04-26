@@ -1,6 +1,7 @@
 import { getDepositRecords } from "@/lib/bybit/asset/get-deposit-records";
 import { getInternalTransferRecords } from "@/lib/bybit/asset/get-internal-transfer-records";
 import { getWithdrawalRecords } from "@/lib/bybit/asset/get-withdrawal-records";
+import { formatUtcDateTime } from "@/lib/time/utc";
 
 type TimelineItem = {
   key: string;
@@ -22,7 +23,7 @@ function parseTimeValue(value?: string): number {
 function toTimelineLabel(timeMs: number): string {
   if (!timeMs) return "Unknown time";
 
-  return new Date(timeMs).toLocaleString();
+  return formatUtcDateTime(timeMs);
 }
 
 export async function DepositsWithdrawalsSection() {

@@ -1,4 +1,5 @@
 import { getExecutionList } from "@/lib/bybit/execution/get-execution-list";
+import { formatUtcDateTime } from "@/lib/time/utc";
 
 type ActivitiesItem = {
   key: string;
@@ -20,7 +21,7 @@ function parseTimeValue(value?: string): number {
 function toTimelineLabel(timeMs: number): string {
   if (!timeMs) return "Unknown time";
 
-  return new Date(timeMs).toLocaleString();
+  return formatUtcDateTime(timeMs);
 }
 
 export async function ActivitiesSection() {

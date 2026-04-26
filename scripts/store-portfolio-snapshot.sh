@@ -6,7 +6,7 @@
 # Purpose
 # - Wrapper script for running your scheduled job on a VPS.
 # - Safe for cron because it sets the working directory explicitly.
-# - Loads variables from .env in the project root.
+# - Loads variables from .env files in the project root.
 # - Writes logs outside the project directory.
 #
 # Why logs are outside the project
@@ -19,32 +19,33 @@
 # ==============================================================================
 #
 # 1. Make it executable:
-#    chmod +x /home/youruser/apps/bybit-quant-dashboard/scripts/store-portfolio-snapshot.sh
+#    chmod +x ~/bybit-quant-dashboard/scripts/store-portfolio-snapshot.sh
 #
-# 2. Create the .env in the PROJECT ROOT, not inside scripts/:
-#    /home/youruser/apps/bybit-quant-dashboard/.env
+# 2. Create env files in the PROJECT ROOT, not inside scripts/:
+#    ~/bybit-quant-dashboard/.env
+#    ~/bybit-quant-dashboard/.env.local
 #
 # 3. Lock down the .env permissions:
-#    chmod 600 /home/youruser/apps/bybit-quant-dashboard/.env
+#    chmod 600 ~/bybit-quant-dashboard/.env
 #
 # 4. Test manually before using cron:
-#    /home/youruser/apps/bybit-quant-dashboard/scripts/store-portfolio-snapshot.sh
+#    ~/bybit-quant-dashboard/scripts/store-portfolio-snapshot.sh
 #
 # 5. Add a cron entry:
 #    crontab -e
 #
 # 6. Example cron entries:
 #    Every 5 minutes:
-#    */5 * * * * /home/youruser/apps/bybit-quant-dashboard/scripts/store-portfolio-snapshot.sh
+#    */5 * * * * ~/bybit-quant-dashboard/scripts/store-portfolio-snapshot.sh
 #
 #    Every hour:
-#    0 * * * * /home/youruser/apps/bybit-quant-dashboard/scripts/store-portfolio-snapshot.sh
+#    0 * * * * ~/bybit-quant-dashboard/scripts/store-portfolio-snapshot.sh
 #
 # 7. Watch logs:
-#    tail -f /home/youruser/logs/bybit-quant-dashboard/cron.log
-#
+#    tail -f ~/logs/bybit-quant-dashboard/cron.log
+#    
 # 8. If your code changes:
-#    cd /home/youruser/apps/bybit-quant-dashboard
+#    cd ~/bybit-quant-dashboard
 #    git pull
 #    npm ci
 #    npm run build
@@ -79,8 +80,18 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$HOME/logs/$APP_NAME"
 LOG_FILE="$LOG_DIR/cron.log"
 
-# Explicit PATH for cron safety
+# Explicit PATH for cron safety.
 export PATH="/usr/local/bin:/usr/bin:/bin"
+
+# Add Node/NPM from NVM installs for non-interactive cron shells.
+if [[ -d "$HOME/.nvm/versions/node" ]]; then
+  for node_bin_dir in "$HOME"/.nvm/versions/node/*/bin; do
+    if [[ -d "$node_bin_dir" ]]; then
+      export PATH="$node_bin_dir:$PATH"
+    fi
+  done
+fi
+export TZ="UTC"
 
 # Create log directory if missing
 mkdir -p "$LOG_DIR"
@@ -88,19 +99,39 @@ mkdir -p "$LOG_DIR"
 # Move into project root so relative paths inside your app work
 cd "$PROJECT_DIR"
 
-# Load environment variables from .env in project root
-if [ -f ".env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  source ".env"
-  set +a
-else
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: .env not found in $PROJECT_DIR" >> "$LOG_FILE"
+# Load environment variables with Next.js-like precedence.
+# Effective priority (highest to lowest):
+# .env.${NODE_ENV}.local > .env.local > .env.${NODE_ENV} > .env
+NODE_ENV="${NODE_ENV:-production}"
+ENV_FILES=(
+  ".env"
+  ".env.${NODE_ENV}"
+)
+
+if [[ "$NODE_ENV" != "test" ]]; then
+  ENV_FILES+=(".env.local")
+fi
+
+ENV_FILES+=(".env.${NODE_ENV}.local")
+
+LOADED_ENV_FILE=false
+set -a
+for env_file in "${ENV_FILES[@]}"; do
+  if [[ -f "$env_file" ]]; then
+    # shellcheck disable=SC1090
+    source "$env_file"
+    LOADED_ENV_FILE=true
+  fi
+done
+set +a
+
+if [[ "$LOADED_ENV_FILE" == false ]]; then
+  echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] ERROR: no env file found in $PROJECT_DIR (.env, .env.${NODE_ENV}, .env.local, .env.${NODE_ENV}.local)" >> "$LOG_FILE"
   exit 1
 fi
 
 # Log start
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Job started" >> "$LOG_FILE"
+echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Job started" >> "$LOG_FILE"
 
 # ==============================================================================
 # RUN COMMAND
@@ -112,11 +143,14 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Job started" >> "$LOG_FILE"
 # /usr/bin/npx tsx scripts/store-portfolio-snapshot.ts >> "$LOG_FILE" 2>&1
 # /usr/bin/node dist/scripts/store-portfolio-snapshot.js >> "$LOG_FILE" 2>&1
 
-if /usr/bin/npm run sync:portfolio >> "$LOG_FILE" 2>&1; then
+if command -v npm >/dev/null 2>&1 && npm run sync:portfolio >> "$LOG_FILE" 2>&1; then
   EXIT_CODE=0
 else
   EXIT_CODE=$?
+  if [[ "$EXIT_CODE" -eq 127 ]]; then
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] ERROR: npm not found in PATH=$PATH" >> "$LOG_FILE"
+  fi
 fi
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Job finished with exit code $EXIT_CODE" >> "$LOG_FILE"
+echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Job finished with exit code $EXIT_CODE" >> "$LOG_FILE"
 exit "$EXIT_CODE"
