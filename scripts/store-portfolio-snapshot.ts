@@ -13,7 +13,17 @@ function formatUnknownError(error: unknown): string {
 async function main() {
   const summary = await storePortfolioSnapshot();
 
-  console.log(JSON.stringify({ ok: true, ...summary }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        recordedAt: summary.recordedAt,
+        portfolioHoldingsOk: summary.portfolioHoldingsOk,
+        assetPricesOk: summary.assetPricesOk,
+      },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((error) => {

@@ -10,10 +10,8 @@ type StorePortfolioSnapshotParams = {
 
 type SnapshotInsertSummary = {
   recordedAt: string;
-  holdingsInserted: number;
-  pricesInserted: number;
-  holdingsSymbols: string[];
-  pricedSymbols: string[];
+  portfolioHoldingsOk: boolean;
+  assetPricesOk: boolean;
 };
 
 type PortfolioHoldingInsertRow = {
@@ -148,9 +146,7 @@ export async function storePortfolioSnapshot(
 
   return {
     recordedAt,
-    holdingsInserted: holdingsRows.length,
-    pricesInserted: assetPriceRows.length,
-    holdingsSymbols: holdingsRows.map((r) => r.symbol),
-    pricedSymbols: assetPriceRows.map((r) => r.symbol),
+    portfolioHoldingsOk: true,
+    assetPricesOk: true,
   };
 }
