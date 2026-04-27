@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   Brush,
@@ -12,10 +12,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { TooltipContentProps } from "recharts";
 
 export type PortfolioHistoryPoint = {
   recordedAt: string;
   valueUsd: number;
+  holdings?: Array<{
+    symbol: string;
+    quantity: number;
+  }>;
 };
 
 type PortfolioHistoryChartProps = {
@@ -28,10 +33,9 @@ function formatXAxisLabel(value: string, range: TimeRange): string {
   const date = new Date(value);
 
   if (range === "last24h") {
-    // dd HH:mm format
+    // HH:mm format
     return new Intl.DateTimeFormat("en-US", {
       timeZone: "UTC",
-      day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
@@ -101,6 +105,17 @@ function formatUsdValue(value: number): string {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 2,
+  });
+}
+
+function formatHoldingQuantity(value: number): string {
+  if (Number.isInteger(value)) {
+    return value.toString();
+  }
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 8,
   });
 }
 
@@ -176,6 +191,41 @@ export function PortfolioHistoryChart({ data }: PortfolioHistoryChartProps) {
 
   const [yMin, yMax] = useMemo(() => calculateYAxisDomain(filteredData), [filteredData]);
 
+  function renderTooltipContent({ active, payload, label }: TooltipContentProps) {
+    if (!active || !payload?.length || typeof label !== "string") {
+      return null;
+    }
+
+    const point = payload[0]?.payload as PortfolioHistoryPoint | undefined;
+    const holdings = point?.holdings ?? [];
+
+    return (
+      <div
+        style={{
+          border: "1px solid rgba(23, 23, 23, 0.15)",
+          borderRadius: 8,
+          backgroundColor: "white",
+          padding: "10px 12px",
+          boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
+        }}
+      >
+        <div style={{ fontWeight: 600 }}>{formatTooltipLabel(label, range)}</div>
+        <div style={{ marginTop: 4 }}>{formatUsdValue(Number(payload[0].value))}</div>
+
+        {holdings.length > 0 ? (
+          <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Holdings</div>
+            {holdings.slice(0, 6).map((holding) => (
+              <div key={holding.symbol}>
+                {holding.symbol}: {formatHoldingQuantity(holding.quantity)}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div style={{ marginTop: 16 }}>
       <p style={{ marginTop: 0, marginBottom: 8, fontWeight: 600 }}>Historical portfolio value</p>
@@ -231,10 +281,7 @@ export function PortfolioHistoryChart({ data }: PortfolioHistoryChartProps) {
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(23, 23, 23, 0.2)" />
             <XAxis dataKey="recordedAt" tickFormatter={(value) => formatXAxisLabel(value, range)} minTickGap={24} />
             <YAxis tickFormatter={formatYAxisTick} width={72} type="number" domain={[yMin, yMax]} />
-            <Tooltip
-              formatter={(value: unknown) => (typeof value === "number" ? formatUsdValue(value) : "")}
-              labelFormatter={(label: ReactNode) => (typeof label === "string" ? formatTooltipLabel(label, range) : "")}
-            />
+            <Tooltip content={renderTooltipContent} />
             <Line
               type="monotone"
               dataKey="valueUsd"

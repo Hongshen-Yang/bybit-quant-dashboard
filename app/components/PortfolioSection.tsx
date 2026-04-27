@@ -37,6 +37,12 @@ type PortfolioValuesRpcRow = {
   value?: number | string | null;
 };
 
+type PortfolioHoldingRow = {
+  recorded_at: string;
+  symbol: string;
+  quantity: number | string;
+};
+
 function formatAccountType(accountType: BybitAccountType): string {
   switch (accountType) {
     case "UNIFIED":
@@ -120,6 +126,46 @@ function toPortfolioHistory(data: PortfolioValuesRpcRow[] | null): PortfolioHist
     .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
 }
 
+function toRecordedAtKey(value: string): string {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return value;
+  }
+
+  return new Date(timestamp).toISOString();
+}
+
+function withHoldings(
+  portfolioHistory: PortfolioHistoryPoint[],
+  holdingsRows: PortfolioHoldingRow[]
+): PortfolioHistoryPoint[] {
+  const holdingsByRecordedAt = new Map<
+    string,
+    Array<{
+      symbol: string;
+      quantity: number;
+    }>
+  >();
+
+  holdingsRows.forEach((row) => {
+    const key = toRecordedAtKey(row.recorded_at);
+    const quantity = Number(row.quantity);
+
+    if (Number.isNaN(quantity)) {
+      return;
+    }
+
+    const existing = holdingsByRecordedAt.get(key) ?? [];
+    existing.push({ symbol: row.symbol, quantity });
+    holdingsByRecordedAt.set(key, existing);
+  });
+
+  return portfolioHistory.map((point) => ({
+    ...point,
+    holdings: holdingsByRecordedAt.get(toRecordedAtKey(point.recordedAt)) ?? [],
+  }));
+}
+
 function hasVisibleBalance(coin: PortfolioCoinView): boolean {
   return toNumber(coin.walletBalance) !== 0 || toNumber(coin.equity) !== 0;
 }
@@ -163,6 +209,23 @@ export async function PortfolioSection() {
   }
 
   const portfolioHistory = toPortfolioHistory((portfolioValuesResult.data ?? null) as PortfolioValuesRpcRow[] | null);
+  const recordedAtFilters = Array.from(new Set(portfolioHistory.map((point) => point.recordedAt)));
+
+  const portfolioHoldingsResult = recordedAtFilters.length
+    ? await getSupabaseAnonClient()
+        .from("portfolio_holdings")
+        .select("recorded_at, symbol, quantity")
+        .in("recorded_at", recordedAtFilters)
+    : { data: [] as PortfolioHoldingRow[], error: null };
+
+  if (portfolioHoldingsResult.error) {
+    console.error("Failed to load historical portfolio holdings:", portfolioHoldingsResult.error);
+  }
+
+  const portfolioHistoryWithHoldings = withHoldings(
+    portfolioHistory,
+    ((portfolioHoldingsResult.data ?? []) as PortfolioHoldingRow[])
+  );
 
   const allCoins: Record<string, PortfolioCoinView> = {};
 
@@ -305,8 +368,8 @@ export async function PortfolioSection() {
           </p>
         ) : null}
 
-        {portfolioHistory.length > 0 ? (
-          <PortfolioHistoryChart data={portfolioHistory} />
+        {portfolioHistoryWithHoldings.length > 0 ? (
+          <PortfolioHistoryChart data={portfolioHistoryWithHoldings} />
         ) : (
           <p style={{ marginTop: 0, marginBottom: 12 }}>No historical portfolio values available yet.</p>
         )}
