@@ -1,7 +1,7 @@
 import { getDepositRecords } from "@/lib/bybit/asset/get-deposit-records";
 import { getInternalTransferRecords } from "@/lib/bybit/asset/get-internal-transfer-records";
 import { getWithdrawalRecords } from "@/lib/bybit/asset/get-withdrawal-records";
-import { formatUtcDateTime } from "@/lib/time/utc";
+import { formatUtcDateTime } from "@/lib/utils/utc";
 
 type TimelineItem = {
   key: string;

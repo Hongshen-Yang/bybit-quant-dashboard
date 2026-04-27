@@ -51,6 +51,8 @@ export async function getAllCoinsBalance(params?: {
 }): Promise<AllCoinsBalanceResult> {
   const memberId = params?.memberId ?? process.env.BYBIT_UID;
 
+  // We remove UNIFIED because the coin parameter becomes mandatory when accountType=UNIFIED.
+  // https://bybit-exchange.github.io/docs/v5/asset/balance/all-balance
   const settledResults = await Promise.allSettled(
     BYBIT_ACCOUNT_TYPES.filter((accountType) => accountType !== "UNIFIED").map(async (accountType): Promise<AccountBalanceRow> => {
       const response = (await bybitClient.getAllCoinsBalance({

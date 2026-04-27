@@ -1,5 +1,5 @@
 import { getExecutionList } from "@/lib/bybit/execution/get-execution-list";
-import { formatUtcDateTime } from "@/lib/time/utc";
+import { formatUtcDateTime } from "@/lib/utils/utc";
 
 type ActivitiesItem = {
   key: string;

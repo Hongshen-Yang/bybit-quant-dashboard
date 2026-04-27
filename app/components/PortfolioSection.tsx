@@ -1,6 +1,12 @@
 import { getWalletBalance } from "@/lib/bybit/account/get-wallet-balance";
 import { getAllCoinsBalance } from "@/lib/bybit/asset/get-all-coins-balance";
 import { getSpotTickers } from "@/lib/bybit/market/get-tickers";
+import {
+  aggregateHoldingsQuantityBySymbol,
+  buildAccountCoinBalances,
+  buildAccountValues,
+  buildUsdtRateMap,
+} from "@/lib/utils/portfolio-calculations";
 import { type BybitAccountType } from "@/lib/bybit/types";
 
 type PortfolioItem = {
@@ -65,29 +71,6 @@ function toFundingBalanceText(balance: { coin: string; walletBalance: string; tr
   return `${balance.coin} - wallet: ${balance.walletBalance} - transfer: ${balance.transferBalance} - bonus: ${balance.bonus || "0"}`;
 }
 
-function buildUsdtRateMap(tickerItems: Array<{ symbol: string; lastPrice: string }>) {
-  const usdtRateByCoin = new Map<string, number>();
-
-  usdtRateByCoin.set("USDT", 1);
-  usdtRateByCoin.set("USDC", 1);
-
-  tickerItems.forEach((ticker) => {
-    if (!ticker.symbol.endsWith("USDT")) {
-      return;
-    }
-
-    const coin = ticker.symbol.slice(0, -4);
-    const rate = Number(ticker.lastPrice);
-    if (!coin || Number.isNaN(rate) || rate <= 0) {
-      return;
-    }
-
-    usdtRateByCoin.set(coin, rate);
-  });
-
-  return usdtRateByCoin;
-}
-
 export async function PortfolioSection() {
   const [unifiedResult, allCoinsResult, spotTickersResult] = await Promise.all([
     getWalletBalance({ accountType: "UNIFIED" }),
@@ -96,6 +79,11 @@ export async function PortfolioSection() {
   ]);
 
   const allCoins: Record<string, PortfolioCoinView> = {};
+
+  const quantityBySymbol = aggregateHoldingsQuantityBySymbol({
+    unifiedRows: unifiedResult.rows,
+    allCoinsRows: allCoinsResult.rows,
+  });
 
   unifiedResult.rows.forEach((row) => {
     row.coins.forEach((coin) => {
@@ -154,66 +142,24 @@ export async function PortfolioSection() {
       text: `${coin.coin} - wallet: ${coin.walletBalance} - equity: ${coin.equity} - available: ${coin.availableToWithdraw} - pnl: ${coin.unrealisedPnl}`,
     }));
 
-  const accountCoinBalances = new Map<BybitAccountType, Map<string, number>>();
-
-  unifiedResult.rows.forEach((row) => {
-    const balances = accountCoinBalances.get(row.accountType) ?? new Map<string, number>();
-
-    row.coins.forEach((coin) => {
-      const amount = Number(coin.walletBalance);
-      if (Number.isNaN(amount)) {
-        return;
-      }
-
-      balances.set(coin.coin, (balances.get(coin.coin) ?? 0) + amount);
-    });
-
-    accountCoinBalances.set(row.accountType, balances);
-  });
-
-  allCoinsResult.rows.forEach((row) => {
-    const balances = accountCoinBalances.get(row.accountType) ?? new Map<string, number>();
-
-    row.balances.forEach((coin) => {
-      const amount = Number(coin.walletBalance);
-      if (Number.isNaN(amount)) {
-        return;
-      }
-
-      balances.set(coin.coin, (balances.get(coin.coin) ?? 0) + amount);
-    });
-
-    accountCoinBalances.set(row.accountType, balances);
+  const accountCoinBalances = buildAccountCoinBalances({
+    unifiedRows: unifiedResult.rows,
+    allCoinsRows: allCoinsResult.rows,
   });
 
   const usdtRateByCoin = buildUsdtRateMap(spotTickersResult.items);
-  const btcUsdtRate = usdtRateByCoin.get("BTC") ?? 0;
-
-  const accountValues = new Map<BybitAccountType, { usdt: number; btc: number }>();
-  accountCoinBalances.forEach((coinBalances, accountType) => {
-    let totalUsdt = 0;
-
-    coinBalances.forEach((amount, coin) => {
-      const usdtRate = usdtRateByCoin.get(coin);
-      if (!usdtRate) {
-        return;
-      }
-
-      totalUsdt += amount * usdtRate;
-    });
-
-    accountValues.set(accountType, {
-      usdt: totalUsdt,
-      btc: btcUsdtRate > 0 ? totalUsdt / btcUsdtRate : 0,
-    });
+  const accountValues = buildAccountValues({
+    accountCoinBalances,
+    usdtRateByCoin,
   });
 
-  let totalUsdtValue = 0;
-  Object.values(allCoins).forEach((coin) => {
-    const amount = Number(coin.walletBalance);
-    const usdtRate = usdtRateByCoin.get(coin.coin);
+  const btcUsdtRate = usdtRateByCoin.get("BTC") ?? 0;
 
-    if (Number.isNaN(amount) || !usdtRate) {
+  let totalUsdtValue = 0;
+  quantityBySymbol.forEach((amount, coin) => {
+    const usdtRate = usdtRateByCoin.get(coin);
+
+    if (!usdtRate) {
       return;
     }
 

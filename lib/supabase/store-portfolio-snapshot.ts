@@ -1,7 +1,9 @@
 import { getAllCoinsBalance } from "@/lib/bybit/asset/get-all-coins-balance";
 import { getWalletBalance } from "@/lib/bybit/account/get-wallet-balance";
 import { getSpotTickers } from "@/lib/bybit/market/get-tickers";
+import { aggregateHoldingsQuantityBySymbol, buildUsdtRateMap } from "@/lib/utils/portfolio-calculations";
 import { getSupabaseAnonClient } from "@/lib/supabase/client";
+import { toUtcIso } from "@/lib/utils/utc";
 
 type StorePortfolioSnapshotParams = {
   recordedAt?: Date | string;
@@ -26,6 +28,9 @@ type AssetPriceInsertRow = {
   price_usd: number;
 };
 
+const MAX_BALANCE_ATTEMPTS = 3;
+const BALANCE_RETRY_DELAYS_MS = [3000, 7000];
+
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error) return error.message;
 
@@ -36,77 +41,90 @@ function formatUnknownError(error: unknown): string {
   }
 }
 
-function toRecordedAtIso(value?: Date | string): string {
-  if (!value) return new Date().toISOString();
-  if (value instanceof Date) return value.toISOString();
+function hasNonZeroUnifiedBalance(rows: Awaited<ReturnType<typeof getWalletBalance>>["rows"]): boolean {
+  return rows.some((row) =>
+    row.coins.some((coin) => {
+      const quantity = Number(coin.walletBalance);
+      return !Number.isNaN(quantity) && quantity !== 0;
+    })
+  );
+}
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid recordedAt value: ${value}`);
+function hasNonZeroFundingBalance(rows: Awaited<ReturnType<typeof getAllCoinsBalance>>["rows"]): boolean {
+  const fundingRow = rows.find((row) => row.accountType === "FUND");
+  if (!fundingRow) return false;
+
+  return fundingRow.balances.some((balance) => {
+    const quantity = Number(balance.walletBalance);
+    return !Number.isNaN(quantity) && quantity !== 0;
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function fetchBalancesWithRetry() {
+  let lastWalletBalanceResult: Awaited<ReturnType<typeof getWalletBalance>> | null = null;
+  let lastAllCoinsBalanceResult: Awaited<ReturnType<typeof getAllCoinsBalance>> | null = null;
+
+  for (let attempt = 1; attempt <= MAX_BALANCE_ATTEMPTS; attempt += 1) {
+    const [walletBalanceResult, allCoinsBalanceResult] = await Promise.all([
+      getWalletBalance({ accountType: "UNIFIED" }).catch((error: unknown) => {
+        throw new Error(`Bybit getWalletBalance failed: ${formatUnknownError(error)}`);
+      }),
+      getAllCoinsBalance().catch((error: unknown) => {
+        throw new Error(`Bybit getAllCoinsBalance failed: ${formatUnknownError(error)}`);
+      }),
+    ]);
+
+    lastWalletBalanceResult = walletBalanceResult;
+    lastAllCoinsBalanceResult = allCoinsBalanceResult;
+
+    const unifiedOk = hasNonZeroUnifiedBalance(walletBalanceResult.rows);
+    const fundingOk = hasNonZeroFundingBalance(allCoinsBalanceResult.rows);
+
+    if (unifiedOk && fundingOk) {
+      if (attempt > 1) {
+        console.log(`Balance retry recovered on attempt ${attempt}.`);
+      }
+      return { walletBalanceResult, allCoinsBalanceResult };
+    }
+
+    if (attempt < MAX_BALANCE_ATTEMPTS) {
+      const delayMs = BALANCE_RETRY_DELAYS_MS[attempt - 1] ?? 5000;
+      console.warn(
+        `Balance snapshot incomplete on attempt ${attempt}/${MAX_BALANCE_ATTEMPTS} (unifiedOk=${unifiedOk}, fundingOk=${fundingOk}). Retrying in ${delayMs}ms...`
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    console.warn(
+      `Balance snapshot still incomplete after ${MAX_BALANCE_ATTEMPTS} attempts (unifiedOk=${unifiedOk}, fundingOk=${fundingOk}). Recording last returned data.`
+    );
   }
 
-  return parsed.toISOString();
-}
+  if (!lastWalletBalanceResult || !lastAllCoinsBalanceResult) {
+    throw new Error("Failed to fetch balances for snapshot");
+  }
 
-function buildUsdtPriceBySymbol(
-  tickerItems: Array<{ symbol: string; lastPrice: string }>
-): Map<string, number> {
-  const prices = new Map<string, number>();
-
-  prices.set("USDT", 1);
-  prices.set("USDC", 1);
-
-  tickerItems.forEach((ticker) => {
-    if (!ticker.symbol.endsWith("USDT")) return;
-
-    const coin = ticker.symbol.slice(0, -4);
-    const price = Number(ticker.lastPrice);
-    if (!coin || Number.isNaN(price) || price <= 0) return;
-
-    prices.set(coin, price);
-  });
-
-  return prices;
-}
-
-function aggregateHoldingsQuantityBySymbol(params: {
-  unifiedRows: Awaited<ReturnType<typeof getWalletBalance>>["rows"];
-  allCoinsRows: Awaited<ReturnType<typeof getAllCoinsBalance>>["rows"];
-}): Map<string, number> {
-  const quantityBySymbol = new Map<string, number>();
-
-  params.unifiedRows.forEach((row) => {
-    row.coins.forEach((coin) => {
-      const quantity = Number(coin.walletBalance);
-      if (Number.isNaN(quantity)) return;
-      quantityBySymbol.set(coin.coin, (quantityBySymbol.get(coin.coin) ?? 0) + quantity);
-    });
-  });
-
-  params.allCoinsRows.forEach((row) => {
-    row.balances.forEach((balance) => {
-      const quantity = Number(balance.walletBalance);
-      if (Number.isNaN(quantity)) return;
-      quantityBySymbol.set(balance.coin, (quantityBySymbol.get(balance.coin) ?? 0) + quantity);
-    });
-  });
-
-  return quantityBySymbol;
+  return {
+    walletBalanceResult: lastWalletBalanceResult,
+    allCoinsBalanceResult: lastAllCoinsBalanceResult,
+  };
 }
 
 export async function storePortfolioSnapshot(
   params: StorePortfolioSnapshotParams = {}
 ): Promise<SnapshotInsertSummary> {
   const includeZeroBalances = params.includeZeroBalances ?? false;
-  const recordedAt = toRecordedAtIso(params.recordedAt);
+  const recordedAt = toUtcIso(params.recordedAt);
 
-  const [walletBalanceResult, allCoinsBalanceResult, spotTickersResult] = await Promise.all([
-    getWalletBalance({ accountType: "UNIFIED" }).catch((error: unknown) => {
-      throw new Error(`Bybit getWalletBalance failed: ${formatUnknownError(error)}`);
-    }),
-    getAllCoinsBalance().catch((error: unknown) => {
-      throw new Error(`Bybit getAllCoinsBalance failed: ${formatUnknownError(error)}`);
-    }),
+  const [{ walletBalanceResult, allCoinsBalanceResult }, spotTickersResult] = await Promise.all([
+    fetchBalancesWithRetry(),
     getSpotTickers().catch((error: unknown) => {
       throw new Error(`Bybit getSpotTickers failed: ${formatUnknownError(error)}`);
     }),
@@ -116,7 +134,7 @@ export async function storePortfolioSnapshot(
     unifiedRows: walletBalanceResult.rows,
     allCoinsRows: allCoinsBalanceResult.rows,
   });
-  const usdtPriceBySymbol = buildUsdtPriceBySymbol(spotTickersResult.items);
+  const usdtPriceBySymbol = buildUsdtRateMap(spotTickersResult.items);
 
   const supabase = getSupabaseAnonClient();
 
