@@ -1,4 +1,5 @@
 import { getPositionInfo } from "@/lib/bybit/position/get-position-info";
+import { hasBybitCredentials } from "@/lib/bybit/client";
 
 type PositionItem = {
   key: string;
@@ -6,6 +7,28 @@ type PositionItem = {
 };
 
 export async function PositionsSection() {
+  if (!hasBybitCredentials()) {
+    return (
+      <section style={{ marginTop: 24 }}>
+        <h2>Positions</h2>
+
+        <div
+          style={{
+            marginTop: 12,
+            border: "2px solid #171717",
+            borderRadius: 8,
+            padding: 16,
+            backgroundColor: "#eef2ff",
+          }}
+        >
+          <p style={{ marginTop: 0, marginBottom: 0 }}>
+            Configure `BYBIT_API_KEY` and `BYBIT_API_SECRET` to load private positions.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   // Try to fetch positions from different categories
   // Some positions might require settleCoin to be specified
   const allCategories = ["linear", "inverse", "option"] as const;

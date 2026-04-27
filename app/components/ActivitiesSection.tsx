@@ -3,6 +3,7 @@ import { getDepositRecords } from "@/lib/bybit/asset/get-deposit-records";
 import { getInternalTransferRecords } from "@/lib/bybit/asset/get-internal-transfer-records";
 import { getWithdrawalRecords } from "@/lib/bybit/asset/get-withdrawal-records";
 import { formatUtcDateTime } from "@/lib/utils/utc";
+import { hasBybitCredentials } from "@/lib/bybit/client";
 
 type ActivitiesItem = {
   key: string;
@@ -29,6 +30,28 @@ function toTimelineLabel(timeMs: number): string {
 }
 
 export async function ActivitiesSection() {
+  if (!hasBybitCredentials()) {
+    return (
+      <section style={{ marginTop: 24 }}>
+        <h2>Recent Activities</h2>
+
+        <div
+          style={{
+            marginTop: 12,
+            border: "2px solid #171717",
+            borderRadius: 8,
+            padding: 16,
+            backgroundColor: "#f8fafc",
+          }}
+        >
+          <p style={{ marginTop: 0, marginBottom: 0 }}>
+            Configure `BYBIT_API_KEY` and `BYBIT_API_SECRET` to load private activity history.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   const perSourceLimit = 10;
 
   const [executionResults, depositResult, withdrawalResult, internalTransferResult] = await Promise.allSettled([

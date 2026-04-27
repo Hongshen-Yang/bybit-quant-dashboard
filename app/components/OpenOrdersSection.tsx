@@ -1,4 +1,5 @@
 import { getOpenOrders } from "@/lib/bybit/trade/get-open-orders";
+import { hasBybitCredentials } from "@/lib/bybit/client";
 
 type OpenOrderListItem = {
   key: string;
@@ -6,6 +7,28 @@ type OpenOrderListItem = {
 };
 
 export async function OpenOrdersSection() {
+  if (!hasBybitCredentials()) {
+    return (
+      <section style={{ marginTop: 24 }}>
+        <h2>Open Orders</h2>
+
+        <div
+          style={{
+            marginTop: 12,
+            border: "2px solid #171717",
+            borderRadius: 8,
+            padding: 16,
+            backgroundColor: "#fef9c3",
+          }}
+        >
+          <p style={{ marginTop: 0, marginBottom: 0 }}>
+            Configure `BYBIT_API_KEY` and `BYBIT_API_SECRET` to load private open orders.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   const orderCategories = ["linear", "inverse", "option", "spot"] as const;
   const openOrderResults = await Promise.allSettled(
     orderCategories.map((category) => getOpenOrders({ category }))

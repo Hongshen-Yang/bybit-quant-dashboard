@@ -1,6 +1,7 @@
 import { getWalletBalance } from "@/lib/bybit/account/get-wallet-balance";
 import { getAllCoinsBalance } from "@/lib/bybit/asset/get-all-coins-balance";
 import { getSpotTickers } from "@/lib/bybit/market/get-tickers";
+import { hasBybitCredentials } from "@/lib/bybit/client";
 import { getSupabaseAnonClient } from "@/lib/supabase/client";
 import {
   aggregateHoldingsQuantityBySymbol,
@@ -185,6 +186,28 @@ function toFundingBalanceText(balance: { coin: string; walletBalance: string; tr
 }
 
 export async function PortfolioSection() {
+  if (!hasBybitCredentials()) {
+    return (
+      <section style={{ marginTop: 24 }}>
+        <h2>Portfolio</h2>
+
+        <div
+          style={{
+            marginTop: 12,
+            border: "2px solid #171717",
+            borderRadius: 8,
+            padding: 16,
+            backgroundColor: "#fef3c7",
+          }}
+        >
+          <p style={{ marginTop: 0, marginBottom: 0 }}>
+            Configure `BYBIT_API_KEY` and `BYBIT_API_SECRET` to load portfolio balances and holdings.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   const [unifiedResult, allCoinsResult, spotTickersResult, portfolioValuesResult] = await Promise.all([
     getWalletBalance({ accountType: "UNIFIED" }),
     getAllCoinsBalance(),
