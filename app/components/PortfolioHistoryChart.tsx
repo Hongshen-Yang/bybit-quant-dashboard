@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 import {
   Brush,
@@ -232,8 +232,8 @@ export function PortfolioHistoryChart({ data }: PortfolioHistoryChartProps) {
             <XAxis dataKey="recordedAt" tickFormatter={(value) => formatXAxisLabel(value, range)} minTickGap={24} />
             <YAxis tickFormatter={formatYAxisTick} width={72} type="number" domain={[yMin, yMax]} />
             <Tooltip
-              formatter={(value: number | undefined) => (value !== undefined ? formatUsdValue(value) : "")}
-              labelFormatter={(label: string | undefined) => (label !== undefined ? formatTooltipLabel(label, range) : "")}
+              formatter={(value: unknown) => (typeof value === "number" ? formatUsdValue(value) : "")}
+              labelFormatter={(label: ReactNode) => (typeof label === "string" ? formatTooltipLabel(label, range) : "")}
             />
             <Line
               type="monotone"

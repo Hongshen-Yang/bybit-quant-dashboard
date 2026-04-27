@@ -29,17 +29,19 @@ function toTimelineLabel(timeMs: number): string {
 }
 
 export async function ActivitiesSection() {
+  const perSourceLimit = 10;
+
   const [executionResults, depositResult, withdrawalResult, internalTransferResult] = await Promise.allSettled([
     (async () => {
       const executionCategories = ["linear", "inverse", "option", "spot"] as const;
       const results = await Promise.allSettled(
-        executionCategories.map((category) => getExecutionList({ category, limit: 50 }))
+        executionCategories.map((category) => getExecutionList({ category, limit: perSourceLimit }))
       );
       return results;
     })(),
-    getDepositRecords(),
-    getWithdrawalRecords(),
-    getInternalTransferRecords(),
+    getDepositRecords({ limit: perSourceLimit }),
+    getWithdrawalRecords({ limit: perSourceLimit }),
+    getInternalTransferRecords({ limit: perSourceLimit }),
   ]);
 
   const items: ActivitiesItem[] = [];
