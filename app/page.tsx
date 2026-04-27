@@ -1,7 +1,6 @@
 import { DashboardHeader } from "./components/DashboardHeader";
 import { PortfolioSection } from "./components/PortfolioSection";
 import { ActivitiesSection } from "./components/ActivitiesSection";
-import { DepositsWithdrawalsSection } from "./components/DepositsWithdrawalsSection";
 import { PositionsSection } from "./components/PositionsSection";
 import { OpenOrdersSection } from "./components/OpenOrdersSection";
 import { formatUtcDateTime } from "@/lib/utils/utc";
@@ -16,7 +15,6 @@ export default async function Home() {
       <PositionsSection />
       <OpenOrdersSection />
       <ActivitiesSection />
-      <DepositsWithdrawalsSection />
     </main>
   );
 }

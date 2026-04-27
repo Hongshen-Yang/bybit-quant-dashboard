@@ -1,9 +1,13 @@
 import { getExecutionList } from "@/lib/bybit/execution/get-execution-list";
+import { getDepositRecords } from "@/lib/bybit/asset/get-deposit-records";
+import { getInternalTransferRecords } from "@/lib/bybit/asset/get-internal-transfer-records";
+import { getWithdrawalRecords } from "@/lib/bybit/asset/get-withdrawal-records";
 import { formatUtcDateTime } from "@/lib/utils/utc";
 
 type ActivitiesItem = {
   key: string;
   text: string;
+  timeMs: number;
 };
 
 function parseTimeValue(value?: string): number {
@@ -25,30 +29,86 @@ function toTimelineLabel(timeMs: number): string {
 }
 
 export async function ActivitiesSection() {
-  const executionCategories = ["linear", "inverse", "option", "spot"] as const;
-  const executionResults = await Promise.allSettled(
-    executionCategories.map((category) => getExecutionList({ category, limit: 50 }))
-  );
+  const [executionResults, depositResult, withdrawalResult, internalTransferResult] = await Promise.allSettled([
+    (async () => {
+      const executionCategories = ["linear", "inverse", "option", "spot"] as const;
+      const results = await Promise.allSettled(
+        executionCategories.map((category) => getExecutionList({ category, limit: 50 }))
+      );
+      return results;
+    })(),
+    getDepositRecords(),
+    getWithdrawalRecords(),
+    getInternalTransferRecords(),
+  ]);
 
-  const items: ActivitiesItem[] = executionResults
-    .flatMap((result, index) => {
+  const items: ActivitiesItem[] = [];
+
+  // Add executions
+  if (executionResults.status === "fulfilled") {
+    const executionCategories = ["linear", "inverse", "option", "spot"] as const;
+    executionResults.value.forEach((result, index) => {
       if (result.status !== "fulfilled") {
-        return [];
+        return;
       }
 
       const category = result.value.category ?? executionCategories[index];
-      return result.value.items.map((execution, itemIndex) => ({
-        key: `${category}-${execution.execId}-${itemIndex}`,
-        timeMs: parseTimeValue(execution.execTime),
-        text: `${category.toUpperCase()} | ${execution.symbol} | ${execution.side} ${execution.execQty} @ ${execution.execPrice} | fee: ${execution.execFee} ${execution.feeCurrency} | ${toTimelineLabel(parseTimeValue(execution.execTime))}`,
-      }));
-    })
+      result.value.items.forEach((execution, itemIndex) => {
+        const timeMs = parseTimeValue(execution.execTime);
+        items.push({
+          key: `execution-${category}-${execution.execId}-${itemIndex}`,
+          timeMs,
+          text: `EXECUTION | ${category.toUpperCase()} | ${execution.symbol} | ${execution.side} ${execution.execQty} @ ${execution.execPrice} | fee: ${execution.execFee} ${execution.feeCurrency} | ${toTimelineLabel(timeMs)}`,
+        });
+      });
+    });
+  }
+
+  // Add deposits
+  if (depositResult.status === "fulfilled") {
+    depositResult.value.items.forEach((deposit, index) => {
+      const timeMs = parseTimeValue(deposit.successAt);
+      items.push({
+        key: `deposit-${deposit.id || index}`,
+        timeMs,
+        text: `DEPOSIT | ${deposit.coin} ${deposit.amount} | Status ${deposit.status} | ${toTimelineLabel(timeMs)}`,
+      });
+    });
+  }
+
+  // Add withdrawals
+  if (withdrawalResult.status === "fulfilled") {
+    withdrawalResult.value.items.forEach((withdrawal, index) => {
+      const timeMs = parseTimeValue(withdrawal.createTime || withdrawal.updateTime);
+      items.push({
+        key: `withdrawal-${withdrawal.withdrawId || index}`,
+        timeMs,
+        text: `WITHDRAWAL | ${withdrawal.coin} ${withdrawal.amount} | Status ${withdrawal.status} | ${toTimelineLabel(timeMs)}`,
+      });
+    });
+  }
+
+  // Add internal transfers
+  if (internalTransferResult.status === "fulfilled") {
+    internalTransferResult.value.items.forEach((transfer, index) => {
+      const timeMs = parseTimeValue(transfer.timestamp);
+      items.push({
+        key: `internal-transfer-${transfer.transferId || index}`,
+        timeMs,
+        text: `TRANSFER | ${transfer.coin} ${transfer.amount} | ${transfer.fromAccountType} -> ${transfer.toAccountType} | Status ${transfer.status} | ${toTimelineLabel(timeMs)}`,
+      });
+    });
+  }
+
+  // Sort by time (newest first) and limit to 10
+  const topItems = items
     .sort((a, b) => b.timeMs - a.timeMs)
+    .slice(0, 10)
     .map((item) => ({ key: item.key, text: item.text }));
 
   return (
     <section style={{ marginTop: 24 }}>
-      <h2>Activities</h2>
+      <h2>Recent Activities</h2>
 
       <div
         style={{
@@ -60,10 +120,10 @@ export async function ActivitiesSection() {
         }}
       >
         <ul style={{ margin: 0, paddingLeft: 20 }}>
-          {items.length === 0 ? (
-            <li>No execution activities found.</li>
+          {topItems.length === 0 ? (
+            <li>No recent activities found.</li>
           ) : (
-            items.map((item) => <li key={item.key}>{item.text}</li>)
+            topItems.map((item) => <li key={item.key}>{item.text}</li>)
           )}
         </ul>
       </div>

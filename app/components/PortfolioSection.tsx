@@ -1,6 +1,7 @@
 import { getWalletBalance } from "@/lib/bybit/account/get-wallet-balance";
 import { getAllCoinsBalance } from "@/lib/bybit/asset/get-all-coins-balance";
 import { getSpotTickers } from "@/lib/bybit/market/get-tickers";
+import { getSupabaseAnonClient } from "@/lib/supabase/client";
 import {
   aggregateHoldingsQuantityBySymbol,
   buildAccountCoinBalances,
@@ -8,6 +9,7 @@ import {
   buildUsdtRateMap,
 } from "@/lib/utils/portfolio-calculations";
 import { type BybitAccountType } from "@/lib/bybit/types";
+import { PortfolioHistoryChart, type PortfolioHistoryPoint } from "./PortfolioHistoryChart";
 
 type PortfolioItem = {
   key: string;
@@ -21,6 +23,18 @@ type PortfolioCoinView = {
   availableToWithdraw: string;
   unrealisedPnl: string;
   usdValue: number;
+};
+
+type PortfolioValuesRpcRow = {
+  recorded_at?: string | null;
+  recordedAt?: string | null;
+  timestamp?: string | null;
+  portfolio_value_usd?: number | string | null;
+  value_usd?: number | string | null;
+  valueUsd?: number | string | null;
+  portfolio_value?: number | string | null;
+  total_value?: number | string | null;
+  value?: number | string | null;
 };
 
 function formatAccountType(accountType: BybitAccountType): string {
@@ -53,6 +67,59 @@ function toNumber(value: string | number): number {
   return Number(value);
 }
 
+function toRecordedAt(row: PortfolioValuesRpcRow): string | null {
+  if (typeof row.recorded_at === "string" && row.recorded_at.length > 0) return row.recorded_at;
+  if (typeof row.recordedAt === "string" && row.recordedAt.length > 0) return row.recordedAt;
+  if (typeof row.timestamp === "string" && row.timestamp.length > 0) return row.timestamp;
+
+  return null;
+}
+
+function toValueUsd(row: PortfolioValuesRpcRow): number {
+  const candidates = [
+    row.portfolio_value_usd,
+    row.value_usd,
+    row.valueUsd,
+    row.portfolio_value,
+    row.total_value,
+    row.value,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) {
+      continue;
+    }
+
+    const parsed = Number(candidate);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function toPortfolioHistory(data: PortfolioValuesRpcRow[] | null): PortfolioHistoryPoint[] {
+  if (!data) {
+    return [];
+  }
+
+  return data
+    .map((row) => {
+      const recordedAt = toRecordedAt(row);
+      if (!recordedAt) {
+        return null;
+      }
+
+      return {
+        recordedAt,
+        valueUsd: toValueUsd(row),
+      };
+    })
+    .filter((point): point is PortfolioHistoryPoint => point !== null)
+    .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+}
+
 function hasVisibleBalance(coin: PortfolioCoinView): boolean {
   return toNumber(coin.walletBalance) !== 0 || toNumber(coin.equity) !== 0;
 }
@@ -72,11 +139,30 @@ function toFundingBalanceText(balance: { coin: string; walletBalance: string; tr
 }
 
 export async function PortfolioSection() {
-  const [unifiedResult, allCoinsResult, spotTickersResult] = await Promise.all([
+  const [unifiedResult, allCoinsResult, spotTickersResult, portfolioValuesResult] = await Promise.all([
     getWalletBalance({ accountType: "UNIFIED" }),
     getAllCoinsBalance(),
     getSpotTickers(),
+    getSupabaseAnonClient().rpc("get_portfolio_values"),
   ]);
+
+// select
+//   h.recorded_at,
+//   sum(h.quantity * p.price_usd) as portfolio_value_usd
+// from portfolio_holdings h
+// join asset_prices p
+//   on p.recorded_at = h.recorded_at
+//  and p.symbol = h.symbol
+// group by h.recorded_at
+// order by h.recorded_at;
+
+  const portfolioValuesErrorMessage = portfolioValuesResult.error?.message ?? null;
+
+  if (portfolioValuesResult.error) {
+    console.error("Failed to load historical portfolio values:", portfolioValuesResult.error);
+  }
+
+  const portfolioHistory = toPortfolioHistory((portfolioValuesResult.data ?? null) as PortfolioValuesRpcRow[] | null);
 
   const allCoins: Record<string, PortfolioCoinView> = {};
 
@@ -212,6 +298,18 @@ export async function PortfolioSection() {
         <p style={{ marginTop: 0, marginBottom: 12 }}>
           Total value: {toFixedValue(totalUsdtValue, 2)} USDT ({toFixedValue(totalBtcValue, 8)} BTC)
         </p>
+
+        {portfolioValuesErrorMessage ? (
+          <p style={{ marginTop: 0, marginBottom: 12, color: "#b91c1c" }}>
+            Failed to load historical portfolio values: {portfolioValuesErrorMessage}
+          </p>
+        ) : null}
+
+        {portfolioHistory.length > 0 ? (
+          <PortfolioHistoryChart data={portfolioHistory} />
+        ) : (
+          <p style={{ marginTop: 0, marginBottom: 12 }}>No historical portfolio values available yet.</p>
+        )}
 
         {items.length > 0 ? (
           <ul style={{ margin: 0, paddingLeft: 20 }}>
