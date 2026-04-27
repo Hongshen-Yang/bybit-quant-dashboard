@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 
 import {
-  Brush,
   CartesianGrid,
   Line,
   LineChart,
@@ -291,13 +290,6 @@ export function PortfolioHistoryChart({ data }: PortfolioHistoryChartProps) {
               activeDot={{ r: 5 }}
               isAnimationActive
             />
-            {filteredData.length > 20 ? (
-              <Brush
-                dataKey="recordedAt"
-                tickFormatter={(value) => formatXAxisLabel(value, range)}
-                height={24}
-              />
-            ) : null}
           </LineChart>
         </ResponsiveContainer>
       </div>
